@@ -1,0 +1,30 @@
+# -*- coding: utf-8 -*-
+import os
+
+dir = ""
+
+def eachFile(filepath):
+    for root, dirs, files in os.walk(filepath):
+        for file in files:
+            path = os.path.join(root, file)
+            list.add(path)
+    return list
+
+def read(filename):
+    fopen = open(filename, 'r')
+    for line in fopen.readlines():
+        line = line.strip()
+        if not len(line):
+            kong = kong + 1;
+        else:
+            lnum = lnum + 1
+
+    total = kong + lnum
+    fopen.close()
+    return  kong, lnum, total
+
+
+filepath = eachFile()
+for path in filepath:
+    read(path)
+

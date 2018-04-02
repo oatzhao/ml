@@ -1,0 +1,196 @@
+import tensorflow as tf
+from matplotlib import pyplot as plt
+import matplotlib.image as mpimg
+import pandas as pd
+import numpy as np
+
+
+np.set_printoptions(precision=3)
+
+def display(alist, show=True):
+    print('type:%s\nshape:%s' %(alist[0].dtype, alist[0].shape))
+    if show:
+        for i in range(3):
+            print ('sqmple%is\n%s'%(i, alist[i]))
+
+scalars = np.array([1,2,3],dtype=int)
+print('\nscalars')
+display(scalars)
+
+
+vectors = np.array([[0.1, 0.1, 0.1],
+                   [0.2, 0.2, 0.2],
+                   (0.3, 0.3, 0.3)], dtype=float)
+print('\nvector')
+display(vectors)
+
+matrices = np.array([np.array((vectors[0], vectors[0])),
+                     np.array((vectors[1], vectors[1])),
+                     np.array((vectors[2], vectors[2]))], dtype=float)
+print ('\nmatrieces')
+display(matrices)
+
+#shape of image:(806, 806, 3)
+img = mpimg.imread('WechatIMG182.jpeg')
+tensors = np.array([img, img, img])
+print('\ntensor')
+display(tensors, show= False)
+plt.imshow(img)
+
+
+writer = tf.python_io.TFRecordWriter('%s.tfrecord' %'test')
+for i in range(3):
+    features = {}
+    features['scalar'] = tf.train.Feature(int64_list=tf.train.Int64List(value=[scalars[i]]))
+    features['vector'] = tf.train.Feature(float_list=tf.train.FloatList(value=vectors[i]))
+    features['matrix'] = tf.train.Feature(float_list = tf.train.FloatList(value=matrices[i].reshape(-1)))
+    features['matrix_shape'] = tf.train.Feature(int64_list = tf.train.Int64List(value=matrices[i].shape))
+    features['tensor'] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[tensors[i].tostring()]))
+    features['tensor_shape'] = tf.train.Feature(int64_list = tf.train.Int64List(value=tensors[i].shape))
+
+    tf_features = tf.train.Features(feature=features)
+    tf_example = tf.train.Example(features = tf_features)
+
+    tf_serialized = tf_example.SerializeToString()
+    writer.write(tf_serialized)
+writer.close()
+
+dataset = tf.data.Dataset.from_tensor_slices([1,2,3])
+
+filename = ["test.tfrecord","test.tfrecord"]
+dataset = tf.data.TFRecordDataset(filename)
+
+data_info = pd.DataFrame({'name':['scalar','vector','matrix','matrix_shape','tensor','tensor_shape'],
+                         'type':[scalars[0].dtype,vectors[0].dtype,matrices[0].dtype,tf.int64, tensors[0].dtype,tf.int64],
+                         'shape':[scalars[0].shape,(3,),matrices[0].shape,(len(matrices[0].shape),),tensors[0].shape,(len(tensors[0].shape),)],
+                         'isbyte':[False,False,True,False,False,False],
+                         'length_type':['fixed','fixed','var','fixed','fixed','fixed']},
+                         columns=['name','type','shape','isbyte','length_type','default'])
+print(data_info)
+
+def parse_function(example_proto):
+    dict = {
+    'scalar': tf.FixedLenFeature(shape=(), dtype=tf.int64, default_value=None),
+
+    'vector': tf.FixedLenFeature(shape=(1, 3), dtype=tf.float32),
+
+    'matrix': tf.VarLenFeature(dtype=np.dtype('float32')),
+    'matrix_shape': tf.FixedLenFeature(shape=(2,), dtype=tf.int64),
+
+    'tensor': tf.FixedLenFeature(shape=(), dtype=tf.string),
+    'tensor_shape': tf.FixedLenFeature(shape=(3,), dtype=tf.int64)}
+
+
+    parsed_example = tf.parse_single_example(example_proto, dict)
+
+    parsed_example['tensor'] = tf.decode_raw(parsed_example['tensor'], tf.uint8)
+    parsed_example['matrix'] = tf.sparse_tensor_to_dense(parsed_example['matrix'])
+
+    parsed_example['tensor'] = tf.reshape(parsed_example['tensor'], parsed_example['tensor_shape'])
+    parsed_example['matrix'] = tf.reshape(parsed_example['matrix'], parsed_example['matrix_shape'])
+    return parsed_example
+
+
+new_dataset = dataset.map(parse_function)
+
+iterator = new_dataset.make_one_shot_iterator()
+next_element = iterator.get_next()
+sess = tf.InteractiveSession()
+
+i = 1
+while True:
+    try:
+        scalar, vector, matrice, tensor = sess.run([next_element['scalar'],
+                                                    next_element['vector'],
+                                                    next_element['matrix'],
+                                                    next_element['tensor']])
+    except tf.errors.OutOfRangeError:
+        print("End of dataset")
+        break
+    else:
+        print('============example %s============' % i)
+        print('scalar: value: %s | shape: %s | type: %s' %(scalar, scalar.shape, scalar.dtype))
+        print('vector shape: %s | type: %s' % (vector.shape, vector.dtype))
+        print('matrix shape: %s | type: %s' % (matrice.shape, matrice.dtype))
+        print('tensor shape: %s | type: %s' % (tensor.shape, tensor.dtype))
+    i += 1
+    plt.imshow(tensor)
+
+
+shuffle_dataset = new_dataset.shuffle(buffer_size=10000)
+iterator = shuffle_dataset.make_one_shot_iterator()
+next_element = iterator.get_next()
+
+i = 1
+while True:
+    try:
+        scalar = sess.run(next_element['scalar'])
+    except tf.errors.OutOfRangeError:
+        print("End of dataset")
+        break
+    else:
+        print('example %s | scalar: value: %s' %(i,scalar))
+    i+=1
+
+batch_dataset = shuffle_dataset.batch(4)
+iterator = batch_dataset.make_one_shot_iterator()
+next_element = iterator.get_next()
+
+i = 1
+while True:
+    try:
+        scalar = sess.run(next_element['scalar'])
+    except tf.errors.OutOfRangeError:
+        print("End of dataset")
+        break
+    else:
+        print('example %s | scalar: value: %s' %(i,scalar))
+    i+=1
+
+batch_padding_dataset = new_dataset.padded_batch(4,
+                        padded_shapes={'scalar': [],
+                                       'vector': [-1,5],
+                                       'matrix': [None,None],
+                                       'matrix_shape': [None],
+                                       'tensor': [None,None,None],
+                                       'tensor_shape': [None]})
+iterator = batch_padding_dataset.make_one_shot_iterator()
+next_element = iterator.get_next()
+
+i = 1
+while True:
+    try:
+        scalar,vector,matrix,tensor = sess.run([next_element['scalar'],
+                                                next_element['vector'],
+                                                next_element['matrix'],
+                                                next_element['tensor']])
+    except tf.errors.OutOfRangeError:
+        print("End of dataset")
+        break
+    else:
+        print('==============example %s ==============' %i)
+        print('scalar: value: %s | shape: %s | type: %s' %(scalar, scalar.shape, scalar.dtype))
+        print('padded vector value\n%s:\nvector shape: %s | type: %s' %(vector, vector.shape, vector.dtype))
+        print('matrix shape: %s | type: %s' %(matrix.shape, matrix.dtype))
+        print('tensor shape: %s | type: %s' %(tensor.shape, tensor.dtype))
+    i+=1
+
+
+
+
+num_epochs = 2
+epoch_dataset = new_dataset.repeat(num_epochs)
+iterator = epoch_dataset.make_one_shot_iterator()
+new_element = iterator.get_next()
+
+i = 1
+while True:
+    try:
+        scalar = sess.run(next_element['scalar'])
+    except tf.errors.OutOfRangeError:
+        print("End of dataset")
+        break
+    else:
+        print('example %s | scalar: value: %s' %(i,scalar))
+    i+=1
+
